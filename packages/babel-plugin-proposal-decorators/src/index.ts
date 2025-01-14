@@ -6,57 +6,59 @@ import {
   createClassFeaturePlugin,
   FEATURES,
 } from "@babel/helper-create-class-features-plugin";
-import legacyVisitor from "./transformer-legacy";
+import legacyVisitor from "./transformer-legacy.ts";
+import type { Options as SyntaxOptions } from "@babel/plugin-syntax-decorators";
 
-export default declare((api, options) => {
-  api.assertVersion(7);
+interface Options extends SyntaxOptions {
+  /** @deprecated use `constantSuper` assumption instead. Only supported in 2021-12 version. */
+  loose?: boolean;
+}
 
-  const { legacy = false } = options;
-  if (typeof legacy !== "boolean") {
-    throw new Error("'legacy' must be a boolean.");
+export type { Options };
+
+export default declare((api, options: Options) => {
+  api.assertVersion(REQUIRED_VERSION(7));
+
+  // Options are validated in @babel/plugin-syntax-decorators
+  if (!process.env.BABEL_8_BREAKING) {
+    // eslint-disable-next-line no-var
+    var { legacy } = options;
   }
+  const { version } = options;
 
-  const { decoratorsBeforeExport } = options;
-  if (decoratorsBeforeExport === undefined) {
-    if (!legacy) {
-      throw new Error(
-        "The decorators plugin requires a 'decoratorsBeforeExport' option," +
-          " whose value must be a boolean. If you want to use the legacy" +
-          " decorators semantics, you can set the 'legacy: true' option.",
-      );
-    }
-  } else {
-    if (legacy) {
-      throw new Error(
-        "'decoratorsBeforeExport' can't be used with legacy decorators.",
-      );
-    }
-    if (typeof decoratorsBeforeExport !== "boolean") {
-      throw new Error("'decoratorsBeforeExport' must be a boolean.");
-    }
-  }
-
-  if (legacy) {
+  if (
+    process.env.BABEL_8_BREAKING
+      ? version === "legacy"
+      : legacy || version === "legacy"
+  ) {
     return {
       name: "proposal-decorators",
       inherits: syntaxDecorators,
-      manipulateOptions({ generatorOpts }) {
-        generatorOpts.decoratorsBeforeExport = decoratorsBeforeExport;
-      },
       visitor: legacyVisitor,
     };
+  } else if (
+    !version ||
+    version === "2018-09" ||
+    version === "2021-12" ||
+    version === "2022-03" ||
+    version === "2023-01" ||
+    version === "2023-05" ||
+    version === "2023-11"
+  ) {
+    api.assertVersion(REQUIRED_VERSION("^7.0.2"));
+    return createClassFeaturePlugin({
+      name: "proposal-decorators",
+
+      api,
+      feature: FEATURES.decorators,
+      inherits: syntaxDecorators,
+      // @ts-expect-error version must not be "legacy" here
+      decoratorVersion: version,
+      // loose: options.loose, Not supported
+    });
+  } else {
+    throw new Error(
+      "The '.version' option must be one of 'legacy', '2023-11', '2023-05', '2023-01', '2022-03', or '2021-12'.",
+    );
   }
-
-  return createClassFeaturePlugin({
-    name: "proposal-decorators",
-
-    api,
-    feature: FEATURES.decorators,
-    // loose: options.loose, Not supported
-
-    manipulateOptions({ generatorOpts, parserOpts }) {
-      parserOpts.plugins.push(["decorators", { decoratorsBeforeExport }]);
-      generatorOpts.decoratorsBeforeExport = decoratorsBeforeExport;
-    },
-  });
 });
